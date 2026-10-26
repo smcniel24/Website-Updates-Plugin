@@ -2,6 +2,19 @@
 
 All notable changes to the Website Updates Report plugin are listed here.
 
+## 1.1.0 — October 26, 2026
+
+### Changed
+- **Gallery Pages now track BildeGallery instead of FileBird.** New gallery folders, renames, moves and deletions are recorded as they happen. This requires BildeGallery 1.2.0 or higher.
+  - Activity recorded while FileBird was in use still appears in reports for those dates.
+  - If BildeGallery isn't active, the Gallery Pages section says so instead of showing an empty list.
+- **The sync button is now "Sync Existing Gallery Folders."** It adds BildeGallery folders that aren't in the report log yet.
+  - Folders imported from FileBird are skipped, so the import doesn't show up as new gallery pages.
+  - Folders created with BildeGallery 1.2.0 or higher use their real creation date and author. Older folders are dated by their oldest image, as before.
+
+### Added
+- **A Change column in the Gallery Pages Updated table**, showing what changed, for example: Renamed from "Gala", or Moved from Events › 2025. Updates recorded under FileBird show a dash, since FileBird didn't record what changed.
+
 ## 1.0.8 — October 24, 2026
 
 ### Added

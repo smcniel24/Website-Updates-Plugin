@@ -7,8 +7,8 @@ jQuery(document).ready(function($) {
     const exportPdfBtn = $('#export-pdf');
     const emailReportBtn = $('#email-report');
     const reportOptionCounts = $('.report-option-count');
-    const syncFilebirdBtn = $('#sync-filebird-folders');
-    const syncFilebirdResult = $('#sync-filebird-result');
+    const syncGalleryBtn = $('#sync-gallery-folders');
+    const syncGalleryResult = $('#sync-gallery-result');
     
     // Handle form submission
     reportForm.on('submit', function(e) {
@@ -41,7 +41,7 @@ jQuery(document).ready(function($) {
             include_projects: $('input[name="include_projects"]').is(':checked'),
             include_posts: $('input[name="include_posts"]').is(':checked'),
             include_media: $('input[name="include_media"]').is(':checked'),
-            include_filebird: $('input[name="include_filebird"]').is(':checked'),
+            include_gallery: $('input[name="include_gallery"]').is(':checked'),
             include_users: $('input[name="include_users"]').is(':checked'),
             include_plugins: $('input[name="include_plugins"]').is(':checked')
         };
@@ -52,7 +52,7 @@ jQuery(document).ready(function($) {
             projects: formData.include_projects,
             posts: formData.include_posts,
             media: formData.include_media,
-            filebird: formData.include_filebird,
+            gallery: formData.include_gallery,
             users: formData.include_users,
             plugins: formData.include_plugins
         });
@@ -197,38 +197,38 @@ jQuery(document).ready(function($) {
         $('body').removeClass('printing-report');
     });
 
-    // Sync existing FileBird folders into activity log
-    syncFilebirdBtn.on('click', function() {
-        const defaultSyncText = syncFilebirdBtn.text();
+    // Sync existing BildeGallery folders into activity log
+    syncGalleryBtn.on('click', function() {
+        const defaultSyncText = syncGalleryBtn.text();
         const endDate = $('#end_date').val();
 
-        if (!confirm('Sync existing FileBird folders into the report log? This will add any folders not yet tracked.')) {
+        if (!confirm('Sync existing gallery folders into the report log? This will add any folders not yet tracked.')) {
             return;
         }
 
-        syncFilebirdBtn.prop('disabled', true).text('Syncing...');
-        syncFilebirdResult.removeClass('is-success is-error').text('');
+        syncGalleryBtn.prop('disabled', true).text('Syncing...');
+        syncGalleryResult.removeClass('is-success is-error').text('');
 
         $.ajax({
             url: websiteUpdates.ajaxUrl,
             type: 'POST',
             data: {
-                action: 'sync_filebird_folders',
+                action: 'sync_gallery_folders',
                 nonce: websiteUpdates.nonce,
                 activity_date: endDate
             },
             success: function(response) {
-                syncFilebirdBtn.prop('disabled', false).text(defaultSyncText);
+                syncGalleryBtn.prop('disabled', false).text(defaultSyncText);
 
                 if (response.success) {
-                    syncFilebirdResult.addClass('is-success').text(response.data.message || 'Sync complete.');
+                    syncGalleryResult.addClass('is-success').text(response.data.message || 'Sync complete.');
                 } else {
-                    syncFilebirdResult.addClass('is-error').text(response.data.message || 'Sync failed.');
+                    syncGalleryResult.addClass('is-error').text(response.data.message || 'Sync failed.');
                 }
             },
             error: function() {
-                syncFilebirdBtn.prop('disabled', false).text(defaultSyncText);
-                syncFilebirdResult.addClass('is-error').text('An error occurred while syncing.');
+                syncGalleryBtn.prop('disabled', false).text(defaultSyncText);
+                syncGalleryResult.addClass('is-error').text('An error occurred while syncing.');
             }
         });
     });
@@ -280,7 +280,7 @@ jQuery(document).ready(function($) {
             projects: summary.projects ? ` (${formatCount(summary.projects.new)} new, ${formatCount(summary.projects.updated)} updated)` : '',
             posts: summary.posts ? ` (${formatCount(summary.posts.new)} new, ${formatCount(summary.posts.updated)} updated)` : '',
             media: summary.media !== undefined ? ` (${formatCount(summary.media)} uploaded)` : '',
-            filebird: summary.filebird ? ` (${formatCount(summary.filebird.created)} new, ${formatCount(summary.filebird.updated)} updated, ${formatCount(summary.filebird.deleted)} deleted)` : '',
+            gallery: summary.gallery ? ` (${formatCount(summary.gallery.created)} new, ${formatCount(summary.gallery.updated)} updated, ${formatCount(summary.gallery.deleted)} deleted)` : '',
             users: summary.users !== undefined ? ` (${formatCount(summary.users)} new)` : '',
             plugins: summary.plugins !== undefined ? ` (${formatCount(summary.plugins)} updates)` : ''
         };

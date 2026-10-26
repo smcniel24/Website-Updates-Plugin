@@ -142,35 +142,35 @@
     margin-left: 6px;
 }
 
-.report-filebird-sync {
+.report-gallery-sync {
     margin-bottom: 25px;
     padding: 16px;
     background: #f6f7f7;
     border-radius: 4px;
 }
 
-.report-filebird-sync h3 {
+.report-gallery-sync h3 {
     margin-top: 0;
     margin-bottom: 8px;
     font-size: 16px;
     color: #1d2327;
 }
 
-.report-filebird-sync p {
+.report-gallery-sync p {
     margin: 0 0 12px 0;
     color: #50575e;
 }
 
-.sync-filebird-result {
+.sync-gallery-result {
     margin-left: 10px;
     font-weight: 600;
 }
 
-.sync-filebird-result.is-success {
+.sync-gallery-result.is-success {
     color: #1d7f42;
 }
 
-.sync-filebird-result.is-error {
+.sync-gallery-result.is-error {
     color: #d63638;
 }
 

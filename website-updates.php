@@ -3,7 +3,7 @@
  * Plugin Name: Website Updates Report
  * Plugin URI: https://godev.net
  * Description: Generate detailed reports of website activity including new pages, updated content, and other changes within a specified date range for client reporting.
- * Version: 1.0.8
+ * Version: 1.1.0
  * Author: GoDev Technologies
  * Author URI: https://godev.net
  * License: GPL-2.0+
@@ -18,7 +18,7 @@ if (!defined('WPINC')) {
     die;
 }
 
-define('WEBSITE_UPDATES_VERSION', '1.0.8');
+define('WEBSITE_UPDATES_VERSION', '1.1.0');
 define('WEBSITE_UPDATES_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WEBSITE_UPDATES_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WEBSITE_UPDATES_GITHUB_REPO', 'smcniel24/Website-Updates-Plugin');
@@ -50,15 +50,15 @@ class Website_Updates_Report {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
         add_action('wp_ajax_generate_updates_report', array($this, 'ajax_generate_report'));
         add_action('wp_ajax_email_updates_report', array($this, 'ajax_email_report'));
-        add_action('wp_ajax_sync_filebird_folders', array($this, 'ajax_sync_filebird_folders'));
+        add_action('wp_ajax_sync_gallery_folders', array($this, 'ajax_sync_gallery_folders'));
         add_action('admin_post_website_updates_save_schedule', array($this, 'handle_schedule_save'));
         add_action('website_updates_send_scheduled_report', array($this, 'send_scheduled_report'));
         add_filter('cron_schedules', array($this, 'add_cron_schedules'));
         
-        // Hook into FileBird folder actions to track gallery activity
-        add_action('fbv_after_folder_created', array($this, 'log_folder_created'), 10, 2);
-        add_action('fbv_before_folder_deleted', array($this, 'log_folder_deleted'), 10, 1);
-        add_action('fbv_after_folder_updated', array($this, 'log_folder_updated'), 10, 2);
+        // Hook into BildeGallery folder events to track gallery activity
+        add_action('bilde_folder_created', array($this, 'log_folder_created'), 10, 2);
+        add_action('bilde_folder_updated', array($this, 'log_folder_updated'), 10, 3);
+        add_action('bilde_folder_deleted', array($this, 'log_folder_deleted'), 10, 2);
 
         // Track plugin, theme and WordPress core updates
         $this->core_version_before = isset($GLOBALS['wp_version']) ? $GLOBALS['wp_version'] : '';
@@ -95,75 +95,50 @@ class Website_Updates_Report {
     }
     
     /**
-     * Log when FileBird folder is created
+     * Log when a BildeGallery folder is created
      */
-    public function log_folder_created($folder_id, $data) {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'website_updates_activity';
-        
-        $folder_name = isset($data['name']) ? $data['name'] : $this->get_folder_name($folder_id);
-        $parent_id = isset($data['parent']) ? $data['parent'] : 0;
-        
-        $wpdb->insert(
-            $table_name,
-            array(
-                'activity_type' => 'filebird_folder_created',
-                'object_id' => $folder_id,
-                'object_name' => $folder_name,
-                'object_data' => json_encode(array(
-                    'parent_id' => $parent_id,
-                    'folder_path' => $this->get_folder_path($folder_id, $folder_name, $parent_id)
-                )),
-                'user_id' => get_current_user_id(),
-                'activity_date' => current_time('mysql')
-            ),
-            array('%s', '%d', '%s', '%s', '%d', '%s')
-        );
+    public function log_folder_created($folder_id, $folder) {
+        $this->log_gallery_activity('gallery_folder_created', $folder_id, $folder);
     }
-    
+
     /**
-     * Log when FileBird folder is deleted
+     * Log when a BildeGallery folder is deleted (fires before the folder is removed)
      */
-    public function log_folder_deleted($folder_id) {
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'website_updates_activity';
-        
-        $folder_name = $this->get_folder_name($folder_id);
-        
-        $wpdb->insert(
-            $table_name,
-            array(
-                'activity_type' => 'filebird_folder_deleted',
-                'object_id' => $folder_id,
-                'object_name' => $folder_name,
-                'object_data' => json_encode(array(
-                    'folder_path' => $this->get_folder_path($folder_id, $folder_name)
-                )),
-                'user_id' => get_current_user_id(),
-                'activity_date' => current_time('mysql')
-            ),
-            array('%s', '%d', '%s', '%s', '%d', '%s')
-        );
+    public function log_folder_deleted($folder_id, $folder) {
+        $this->log_gallery_activity('gallery_folder_deleted', $folder_id, $folder);
     }
-    
+
     /**
-     * Log when FileBird folder is updated
+     * Log when a BildeGallery folder is renamed or moved
      */
-    public function log_folder_updated($folder_id, $data) {
+    public function log_folder_updated($folder_id, $folder, $changes) {
+        $this->log_gallery_activity('gallery_folder_updated', $folder_id, $folder, array(
+            'renamed' => !empty($changes['renamed']),
+            'moved' => !empty($changes['moved']),
+            'old_name' => isset($changes['old_name']) ? $changes['old_name'] : '',
+            'old_path' => isset($changes['old_path']) ? $changes['old_path'] : ''
+        ));
+    }
+
+    /**
+     * Insert one gallery folder activity into the activity log
+     */
+    private function log_gallery_activity($activity_type, $folder_id, $folder, $extra = array(), $user_id = null, $activity_date = null) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'website_updates_activity';
-        
-        $folder_name = isset($data['name']) ? $data['name'] : $this->get_folder_name($folder_id);
-        
+
         $wpdb->insert(
             $table_name,
             array(
-                'activity_type' => 'filebird_folder_updated',
+                'activity_type' => $activity_type,
                 'object_id' => $folder_id,
-                'object_name' => $folder_name,
-                'object_data' => json_encode($data),
-                'user_id' => get_current_user_id(),
-                'activity_date' => current_time('mysql')
+                'object_name' => $folder['name'],
+                'object_data' => json_encode(array_merge(array(
+                    'parent_id' => $folder['parent'],
+                    'folder_path' => $folder['path']
+                ), $extra)),
+                'user_id' => $user_id !== null ? $user_id : get_current_user_id(),
+                'activity_date' => $activity_date !== null ? $activity_date : current_time('mysql')
             ),
             array('%s', '%d', '%s', '%s', '%d', '%s')
         );
@@ -295,62 +270,6 @@ class Website_Updates_Report {
     }
 
     /**
-     * Get folder name from FileBird database
-     */
-    private function get_folder_name($folder_id) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'fbv';
-        
-        $name = $wpdb->get_var($wpdb->prepare(
-            "SELECT name FROM $table WHERE id = %d",
-            $folder_id
-        ));
-        
-        return $name ? $name : 'Unknown Folder';
-    }
-    
-    /**
-     * Get full folder path (parent folders)
-     */
-    private function get_folder_path($folder_id, $folder_name = '', $parent_id = null) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'fbv';
-        
-        if (empty($folder_name)) {
-            $folder_name = $this->get_folder_name($folder_id);
-        }
-        
-        if ($parent_id === null) {
-            $parent_id = $wpdb->get_var($wpdb->prepare(
-                "SELECT parent FROM $table WHERE id = %d",
-                $folder_id
-            ));
-        }
-        
-        $path = array($folder_name);
-        
-        // Build path by traversing parent folders
-        $max_depth = 10; // Prevent infinite loops
-        $depth = 0;
-        while ($parent_id && $parent_id > 0 && $depth < $max_depth) {
-            $parent = $wpdb->get_row($wpdb->prepare(
-                "SELECT name, parent FROM $table WHERE id = %d",
-                $parent_id
-            ));
-            
-            if ($parent) {
-                array_unshift($path, $parent->name);
-                $parent_id = $parent->parent;
-            } else {
-                break;
-            }
-            $depth++;
-        }
-        
-        return implode(' > ', $path);
-    }
-    
-    /**
      * Add admin menu page
      */
     public function add_admin_menu() {
@@ -472,9 +391,9 @@ class Website_Updates_Report {
                                 <span class="report-option-count" data-report-count="media"></span>
                             </label>
                             <label>
-                                <input type="checkbox" name="include_filebird" value="1" checked>
+                                <input type="checkbox" name="include_gallery" value="1" checked>
                                 <?php _e('Gallery Pages', 'website-updates'); ?>
-                                <span class="report-option-count" data-report-count="filebird"></span>
+                                <span class="report-option-count" data-report-count="gallery"></span>
                             </label>
                             <label>
                                 <input type="checkbox" name="include_users" value="1">
@@ -488,13 +407,13 @@ class Website_Updates_Report {
                             </label>
                         </div>
 
-                        <div class="report-filebird-sync">
+                        <div class="report-gallery-sync">
                             <h3><?php _e('Missing Gallery Pages?', 'website-updates'); ?></h3>
-                            <p><?php _e('If you created FileBird folders before this plugin was installed, you can sync them into the report log.', 'website-updates'); ?></p>
-                            <button type="button" id="sync-filebird-folders" class="button">
-                                <?php _e('Sync Existing FileBird Folders', 'website-updates'); ?>
+                            <p><?php _e('If you created BildeGallery folders before this version of the plugin was installed, you can sync them into the report log. Folders imported from FileBird are skipped.', 'website-updates'); ?></p>
+                            <button type="button" id="sync-gallery-folders" class="button">
+                                <?php _e('Sync Existing Gallery Folders', 'website-updates'); ?>
                             </button>
-                            <span id="sync-filebird-result" class="sync-filebird-result" aria-live="polite"></span>
+                            <span id="sync-gallery-result" class="sync-gallery-result" aria-live="polite"></span>
                         </div>
 
                         <button type="submit" class="button button-primary button-large">
@@ -539,7 +458,7 @@ class Website_Updates_Report {
         $include_projects = !empty($_POST['include_projects']) && $_POST['include_projects'] !== 'false';
         $include_posts = !empty($_POST['include_posts']) && $_POST['include_posts'] !== 'false';
         $include_media = !empty($_POST['include_media']) && $_POST['include_media'] !== 'false';
-        $include_filebird = !empty($_POST['include_filebird']) && $_POST['include_filebird'] !== 'false';
+        $include_gallery = !empty($_POST['include_gallery']) && $_POST['include_gallery'] !== 'false';
         $include_users = !empty($_POST['include_users']) && $_POST['include_users'] !== 'false';
         $include_plugins = !empty($_POST['include_plugins']) && $_POST['include_plugins'] !== 'false';
         
@@ -592,16 +511,16 @@ class Website_Updates_Report {
             $report_data['summary']['media'] = count($media_items);
         }
         
-        // Get FileBird folder data
-        if ($include_filebird) {
-            $report_data['details']['filebird'] = $this->get_filebird_data($start_date, $end_date);
-            $report_data['summary']['filebird'] = array(
-                'created' => count($report_data['details']['filebird']['created']),
-                'updated' => count($report_data['details']['filebird']['updated']),
-                'deleted' => count($report_data['details']['filebird']['deleted'])
+        // Get gallery folder data
+        if ($include_gallery) {
+            $report_data['details']['gallery'] = $this->get_gallery_data($start_date, $end_date);
+            $report_data['summary']['gallery'] = array(
+                'created' => count($report_data['details']['gallery']['created']),
+                'updated' => count($report_data['details']['gallery']['updated']),
+                'deleted' => count($report_data['details']['gallery']['deleted'])
             );
             // Ensure the key exists even if empty
-            $report_data['details']['filebird']['included'] = true;
+            $report_data['details']['gallery']['included'] = true;
         }
         
         // Get users data
@@ -833,13 +752,13 @@ class Website_Updates_Report {
         );
         $report_data['summary']['media'] = count($media_items);
 
-        $report_data['details']['filebird'] = $this->get_filebird_data($start_date, $end_date);
-        $report_data['summary']['filebird'] = array(
-            'created' => count($report_data['details']['filebird']['created']),
-            'updated' => count($report_data['details']['filebird']['updated']),
-            'deleted' => count($report_data['details']['filebird']['deleted'])
+        $report_data['details']['gallery'] = $this->get_gallery_data($start_date, $end_date);
+        $report_data['summary']['gallery'] = array(
+            'created' => count($report_data['details']['gallery']['created']),
+            'updated' => count($report_data['details']['gallery']['updated']),
+            'deleted' => count($report_data['details']['gallery']['deleted'])
         );
-        $report_data['details']['filebird']['included'] = true;
+        $report_data['details']['gallery']['included'] = true;
 
         $users_items = $this->get_users_data($start_date, $end_date);
         $report_data['details']['users'] = array(
@@ -873,22 +792,21 @@ class Website_Updates_Report {
     }
 
     /**
-     * AJAX handler to sync existing FileBird folders into report activity log
+     * AJAX handler to sync existing BildeGallery folders into report activity log
      */
-    public function ajax_sync_filebird_folders() {
+    public function ajax_sync_gallery_folders() {
         check_ajax_referer('website_updates_nonce', 'nonce');
 
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => __('Insufficient permissions', 'website-updates')));
         }
 
-        global $wpdb;
-        $filebird_table = $wpdb->prefix . 'fbv';
-        $activity_table = $wpdb->prefix . 'website_updates_activity';
-
-        if ($wpdb->get_var("SHOW TABLES LIKE '$filebird_table'") != $filebird_table) {
-            wp_send_json_error(array('message' => __('FileBird folders table not found.', 'website-updates')));
+        if (!$this->gallery_plugin_active()) {
+            wp_send_json_error(array('message' => __('BildeGallery 1.2.0 or higher must be active to sync gallery folders.', 'website-updates')));
         }
+
+        global $wpdb;
+        $activity_table = $wpdb->prefix . 'website_updates_activity';
 
         if ($wpdb->get_var("SHOW TABLES LIKE '$activity_table'") != $activity_table) {
             self::create_activity_table();
@@ -902,66 +820,70 @@ class Website_Updates_Report {
             $activity_date = current_time('mysql');
         }
 
-        $folders = $wpdb->get_results(
-            "SELECT id, name, parent, created_by FROM $filebird_table WHERE type = 0",
-            OBJECT
-        );
+        $folder_ids = get_terms(array(
+            'taxonomy' => BG_Folders::TAXONOMY,
+            'hide_empty' => false,
+            'fields' => 'ids'
+        ));
 
-        if (empty($folders)) {
+        if (is_wp_error($folder_ids) || empty($folder_ids)) {
             wp_send_json_success(array(
                 'count' => 0,
-                'message' => __('No FileBird folders found to sync.', 'website-updates')
+                'message' => __('No gallery folders found to sync.', 'website-updates')
             ));
         }
 
         $existing_ids = $wpdb->get_col(
             $wpdb->prepare(
                 "SELECT object_id FROM $activity_table WHERE activity_type = %s",
-                'filebird_folder_created'
+                'gallery_folder_created'
             )
         );
         $existing_ids = array_map('intval', $existing_ids);
 
+        // Imports run before BildeGallery 1.2.0 didn't tag their folders
+        // with a FileBird ID, so also check the import's ID map
+        $imported_ids = array_map('intval', array_values((array) get_option(BG_Migration::OPTION_ID_MAP, array())));
+
         $synced = 0;
-        foreach ($folders as $folder) {
-            $folder_id = intval($folder->id);
-            if (in_array($folder_id, $existing_ids, true)) {
+        foreach ($folder_ids as $folder_id) {
+            $folder_id = intval($folder_id);
+            if (in_array($folder_id, $existing_ids, true) || in_array($folder_id, $imported_ids, true)) {
                 continue;
             }
 
-            $folder_name = $folder->name;
-            $parent_id = intval($folder->parent);
-            $user_id = !empty($folder->created_by) ? intval($folder->created_by) : get_current_user_id();
+            $folder = BG_Folders::get_folder_info($folder_id);
 
-            $first_attachment_date = $wpdb->get_var(
-                $wpdb->prepare(
-                    "SELECT MIN(p.post_date) FROM {$wpdb->posts} p\n                     INNER JOIN {$wpdb->prefix}fbv_attachment_folder faf ON p.ID = faf.attachment_id\n                     WHERE faf.folder_id = %d",
-                    $folder_id
-                )
-            );
-
-            $folder_activity_date = $activity_date;
-            if (!empty($first_attachment_date)) {
-                $folder_activity_date = $first_attachment_date;
+            // Folders imported from FileBird were never new on this site; any
+            // FileBird-era activity for them is already in the log
+            if (!$folder || $folder['filebird_id'] > 0) {
+                continue;
             }
 
-            $wpdb->insert(
-                $activity_table,
-                array(
-                    'activity_type' => 'filebird_folder_created',
-                    'object_id' => $folder_id,
-                    'object_name' => $folder_name,
-                    'object_data' => json_encode(array(
-                        'parent_id' => $parent_id,
-                        'folder_path' => $this->get_folder_path($folder_id, $folder_name, $parent_id),
-                        'first_attachment_date' => $first_attachment_date,
-                        'synced' => true
-                    )),
-                    'user_id' => $user_id,
-                    'activity_date' => $folder_activity_date
-                ),
-                array('%s', '%d', '%s', '%s', '%d', '%s')
-            );
+            $user_id = $folder['created_by'] > 0 ? $folder['created_by'] : get_current_user_id();
+
+            // Folders made before BildeGallery 1.2.0 have no recorded creation
+            // date, so fall back to their oldest image
+            $first_attachment_date = '';
+            $folder_activity_date = $folder['created_at'];
+            if ($folder_activity_date === '') {
+                $first_attachment_date = $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT MIN(p.post_date) FROM {$wpdb->posts} p
+                         INNER JOIN {$wpdb->term_relationships} tr ON p.ID = tr.object_id
+                         INNER JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+                         WHERE tt.taxonomy = %s AND tt.term_id = %d",
+                        BG_Folders::TAXONOMY,
+                        $folder_id
+                    )
+                );
+                $folder_activity_date = !empty($first_attachment_date) ? $first_attachment_date : $activity_date;
+            }
+
+            $this->log_gallery_activity('gallery_folder_created', $folder_id, $folder, array(
+                'first_attachment_date' => $first_attachment_date,
+                'synced' => true
+            ), $user_id, $folder_activity_date);
 
             $synced++;
         }
@@ -1270,25 +1192,40 @@ class Website_Updates_Report {
     }
     
     /**
-     * Get FileBird folder activity data
+     * Is BildeGallery (1.2.0+, which fires the folder events we log) active?
      */
-    private function get_filebird_data($start_date, $end_date) {
+    private function gallery_plugin_active() {
+        return class_exists('BG_Folders') && method_exists('BG_Folders', 'get_folder_info');
+    }
+
+    /**
+     * Get gallery folder activity data. Includes activity logged under
+     * FileBird (filebird_folder_*) so reports for earlier dates still work.
+     */
+    private function get_gallery_data($start_date, $end_date) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'website_updates_activity';
-        $data = array('created' => array(), 'updated' => array(), 'deleted' => array());
-        
+        $data = array(
+            'created' => array(),
+            'updated' => array(),
+            'deleted' => array(),
+            'available' => $this->gallery_plugin_active()
+        );
+
         // Check if table exists, if not create it
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
             self::create_activity_table();
         }
-        
+
         // Get folder activities
         $activities = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $table_name 
-            WHERE activity_type LIKE 'filebird_folder_%'
-            AND activity_date >= %s 
+            "SELECT * FROM $table_name
+            WHERE (activity_type LIKE %s OR activity_type LIKE %s)
+            AND activity_date >= %s
             AND activity_date <= %s
             ORDER BY activity_date DESC",
+            $wpdb->esc_like('gallery_folder_') . '%',
+            $wpdb->esc_like('filebird_folder_') . '%',
             $start_date . ' 00:00:00',
             $end_date . ' 23:59:59'
         ));
@@ -1307,19 +1244,39 @@ class Website_Updates_Report {
                 'name' => $activity->object_name,
                 'path' => isset($object_data['folder_path']) ? $object_data['folder_path'] : $activity->object_name,
                 'date' => $item_date,
-                'author' => $user ? $user->display_name : 'Unknown'
+                'author' => $user ? $user->display_name : 'Unknown',
+                'change' => $this->describe_gallery_change($object_data)
             );
-            
-            if ($activity->activity_type === 'filebird_folder_created') {
+
+            $action = preg_replace('/^(gallery|filebird)_folder_/', '', $activity->activity_type);
+            if ($action === 'created') {
                 $data['created'][] = $item;
-            } elseif ($activity->activity_type === 'filebird_folder_updated') {
+            } elseif ($action === 'updated') {
                 $data['updated'][] = $item;
-            } elseif ($activity->activity_type === 'filebird_folder_deleted') {
+            } elseif ($action === 'deleted') {
                 $data['deleted'][] = $item;
             }
         }
-        
+
         return $data;
+    }
+
+    /**
+     * Describe a gallery folder update, e.g. 'Renamed from "Gala"'.
+     * Empty for activity logged under FileBird, which didn't record it.
+     */
+    private function describe_gallery_change($object_data) {
+        $changes = array();
+
+        if (!empty($object_data['renamed']) && !empty($object_data['old_name'])) {
+            $changes[] = sprintf(__('Renamed from "%s"', 'website-updates'), $object_data['old_name']);
+        }
+
+        if (!empty($object_data['moved']) && !empty($object_data['old_path'])) {
+            $changes[] = sprintf(__('Moved from %s', 'website-updates'), $object_data['old_path']);
+        }
+
+        return implode('; ', $changes);
     }
     
     /**
@@ -1467,14 +1424,14 @@ class Website_Updates_Report {
                 </div>
                 <?php endif; ?>
                 
-                <?php if (isset($data['summary']['filebird'])): ?>
+                <?php if (isset($data['summary']['gallery'])): ?>
                 <div class="summary-item">
                     <div class="summary-icon">📁</div>
                     <div class="summary-content">
                         <h4><?php _e('Gallery Pages', 'website-updates'); ?></h4>
                         <p class="summary-stat">
-                            <strong><?php echo $data['summary']['filebird']['created']; ?></strong> created,
-                            <strong><?php echo $data['summary']['filebird']['updated']; ?></strong> updated
+                            <strong><?php echo $data['summary']['gallery']['created']; ?></strong> created,
+                            <strong><?php echo $data['summary']['gallery']['updated']; ?></strong> updated
                         </p>
                     </div>
                 </div>
@@ -1601,12 +1558,18 @@ class Website_Updates_Report {
             </div>
             <?php endif; ?>
             
-            <?php if (isset($data['details']['filebird']) && isset($data['details']['filebird']['included'])): ?>
+            <?php if (isset($data['details']['gallery']) && isset($data['details']['gallery']['included'])): ?>
             <div class="detail-section">
                 <h3><?php _e('Gallery Pages', 'website-updates'); ?></h3>
-                
-                <?php if (!empty($data['details']['filebird']['created'])): ?>
-                <?php $new_gallery_count = count($data['details']['filebird']['created']); ?>
+
+                <?php if (empty($data['details']['gallery']['available'])): ?>
+                <p style="padding: 15px; background: #fcf9e8; border-left: 4px solid #dba617; margin: 10px 0;">
+                    <?php _e('BildeGallery 1.2.0 or higher is not active, so new gallery activity is not being tracked.', 'website-updates'); ?>
+                </p>
+                <?php endif; ?>
+
+                <?php if (!empty($data['details']['gallery']['created'])): ?>
+                <?php $new_gallery_count = count($data['details']['gallery']['created']); ?>
                 <h4><?php _e('New Gallery Pages', 'website-updates'); ?> (<?php printf(_n('%s new gallery page', '%s new gallery pages', $new_gallery_count, 'website-updates'), number_format_i18n($new_gallery_count)); ?>)</h4>
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
@@ -1618,7 +1581,7 @@ class Website_Updates_Report {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($data['details']['filebird']['created'] as $folder): ?>
+                        <?php foreach ($data['details']['gallery']['created'] as $folder): ?>
                         <tr>
                             <td><strong><?php echo esc_html($folder['name']); ?></strong></td>
                             <td><?php echo esc_html($folder['path']); ?></td>
@@ -1630,23 +1593,25 @@ class Website_Updates_Report {
                 </table>
                 <?php endif; ?>
                 
-                <?php if (!empty($data['details']['filebird']['updated'])): ?>
-                <?php $updated_gallery_count = count($data['details']['filebird']['updated']); ?>
+                <?php if (!empty($data['details']['gallery']['updated'])): ?>
+                <?php $updated_gallery_count = count($data['details']['gallery']['updated']); ?>
                 <h4><?php _e('Gallery Pages Updated', 'website-updates'); ?> (<?php printf(_n('%s updated gallery page', '%s updated gallery pages', $updated_gallery_count, 'website-updates'), number_format_i18n($updated_gallery_count)); ?>)</h4>
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
                             <th><?php _e('Folder Name', 'website-updates'); ?></th>
                             <th><?php _e('Full Path', 'website-updates'); ?></th>
+                            <th><?php _e('Change', 'website-updates'); ?></th>
                             <th><?php _e('Updated By', 'website-updates'); ?></th>
                             <th><?php _e('Date Updated', 'website-updates'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($data['details']['filebird']['updated'] as $folder): ?>
+                        <?php foreach ($data['details']['gallery']['updated'] as $folder): ?>
                         <tr>
                             <td><strong><?php echo esc_html($folder['name']); ?></strong></td>
                             <td><?php echo esc_html($folder['path']); ?></td>
+                            <td><?php echo $folder['change'] !== '' ? esc_html($folder['change']) : '&mdash;'; ?></td>
                             <td><?php echo esc_html($folder['author']); ?></td>
                             <td><?php echo date('M j, Y g:i A', strtotime($folder['date'])); ?></td>
                         </tr>
@@ -1655,8 +1620,8 @@ class Website_Updates_Report {
                 </table>
                 <?php endif; ?>
                 
-                <?php if (!empty($data['details']['filebird']['deleted'])): ?>
-                <?php $deleted_gallery_count = count($data['details']['filebird']['deleted']); ?>
+                <?php if (!empty($data['details']['gallery']['deleted'])): ?>
+                <?php $deleted_gallery_count = count($data['details']['gallery']['deleted']); ?>
                 <h4><?php _e('Gallery Pages Deleted', 'website-updates'); ?> (<?php printf(_n('%s deleted gallery page', '%s deleted gallery pages', $deleted_gallery_count, 'website-updates'), number_format_i18n($deleted_gallery_count)); ?>)</h4>
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
@@ -1668,7 +1633,7 @@ class Website_Updates_Report {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($data['details']['filebird']['deleted'] as $folder): ?>
+                        <?php foreach ($data['details']['gallery']['deleted'] as $folder): ?>
                         <tr>
                             <td><strong><?php echo esc_html($folder['name']); ?></strong></td>
                             <td><?php echo esc_html($folder['path']); ?></td>
@@ -1682,9 +1647,9 @@ class Website_Updates_Report {
                 
                 <?php 
                 // Show "no activity" message only if ALL subsections are empty
-                if (empty($data['details']['filebird']['created']) && 
-                    empty($data['details']['filebird']['updated']) && 
-                    empty($data['details']['filebird']['deleted'])): 
+                if (empty($data['details']['gallery']['created']) && 
+                    empty($data['details']['gallery']['updated']) && 
+                    empty($data['details']['gallery']['deleted'])): 
                 ?>
                 <p style="padding: 15px; background: #f6f7f7; border-left: 4px solid #72aee6; margin: 10px 0;">
                     <?php _e('No gallery page activity during this period.', 'website-updates'); ?>
