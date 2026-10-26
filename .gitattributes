@@ -1,0 +1,4 @@
+# Keep repo-only files out of the zip that sites download
+.gitattributes export-ignore
+.gitignore export-ignore
+.github export-ignore
